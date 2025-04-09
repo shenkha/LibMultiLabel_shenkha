@@ -1,0 +1,27 @@
+# BERT Configuration for EUR-Lex dataset
+
+# Model
+model_name: "BERTForMultiLabelSequenceClassification"
+pretrained_model_name_or_path: "bert-base-uncased"
+
+# Data
+data_name: "EUR-Lex"
+training_file: "path/to/eurlex/train.txt"
+val_file: "path/to/eurlex/val.txt"
+test_file: "path/to/eurlex/test.txt"
+max_seq_length: 512
+
+# Training
+epochs: 20
+batch_size: 16
+optimizer: "adamw"  # Use "adamw", "adamw_hf_with_bias", or "adamw_hf_without_bias"
+learning_rate: 2e-5
+weight_decay: 0.01
+
+# Evaluation
+monitor_metrics: ["Micro-F1", "RP@5"]
+val_metric: "Micro-F1"
+
+# Other
+result_dir: "./bert_results"
+seed: 42

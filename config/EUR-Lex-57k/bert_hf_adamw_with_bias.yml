@@ -1,0 +1,27 @@
+# data
+training_file: data/EUR-Lex/train.txt
+validation_file: data/EUR-Lex/test.txt
+test_file: data/EUR-Lex/test.txt
+min_vocab_freq: 1
+max_seq_length: 512
+vocab: none
+
+# model
+model: bert
+pretrained_model: bert-base-uncased
+
+# training
+optimizer: hf_adamw
+bias_correction: true
+batch_size: 32
+patience: 10
+seed: 1337
+epochs: 100
+learning_rate: 0.00005
+weight_decay: 0.01
+
+# metrics to monitor
+monitor_metrics:
+  - Micro-F1
+  - RP@5
+  - Loss
