@@ -1,9 +1,10 @@
 # This config only serves as an example as it is not tuned by hyper-parameter search.
 # data
-training_file: data/EUR-Lex-57k/train.txt
-val_file: data/EUR-Lex-57k/valid.txt
-test_file: data/EUR-Lex-57k/test.txt
-data_name: EUR-Lex-57k
+training_file: data/EUR-Lex/train.txt
+# val_file: data/EUR-Lex-57k/valid.txt
+# val_file: data/EUR-Lex/test.txt
+test_file: data/EUR-Lex/test.txt
+data_name: EUR-Lex
 min_vocab_freq: 1
 max_seq_length: 512
 include_test_labels: true
@@ -11,15 +12,15 @@ add_special_tokens: true
 
 # train
 seed: 1337
-epochs: 15
-batch_size: 8
+epochs: 100
+batch_size: 16
 optimizer: adamw
-learning_rate: 0.00005
-weight_decay: 0.001
-patience: 5
+learning_rate: 0.00005 
+weight_decay: 0.01
+patience: 10 
 
 # eval
-eval_batch_size: 8
+eval_batch_size: 16
 monitor_metrics: ['Micro-F1', 'Macro-F1', 'Another-Macro-F1', 'P@1', 'P@5', 'RP@5', 'nDCG@5']
 val_metric: RP@5
 

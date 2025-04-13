@@ -5,12 +5,10 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-# Import HuggingFace's AdamW
-from transformers import AdamW as HFAdamW
 
 from ..common_utils import argsort_top_k, dump_log
 from ..nn.metrics import get_metrics, tabulate_metrics
-
+from transformers import AdamW as HFAdamW
 
 class MultiLabelModel(L.LightningModule):
     """Abstract class handling Pytorch Lightning training flow
@@ -27,7 +25,6 @@ class MultiLabelModel(L.LightningModule):
         multiclass (bool, optional): Enable multiclass mode. Defaults to False.
         silent (bool, optional): Enable silent mode. Defaults to False.
         save_k_predictions (int, optional): Save top k predictions on test set. Defaults to 0.
-        bias_correction (bool, optional): Whether to apply bias correction for HF AdamW. Defaults to True.
     """
 
     def __init__(
@@ -46,7 +43,7 @@ class MultiLabelModel(L.LightningModule):
         multiclass=False,
         silent=False,
         save_k_predictions=0,
-        bias_correction=True,
+        # bias_correction=True,
         **kwargs
     ):
         super().__init__()
@@ -56,7 +53,7 @@ class MultiLabelModel(L.LightningModule):
         self.optimizer = optimizer
         self.momentum = momentum
         self.weight_decay = weight_decay
-        self.bias_correction = bias_correction
+        # self.bias_correction = bias_correction ## Added to clarify later
 
         # lr_scheduler
         self.lr_scheduler = lr_scheduler
@@ -72,10 +69,9 @@ class MultiLabelModel(L.LightningModule):
         self.multiclass = multiclass
         top_k = 1 if self.multiclass else None
         self.eval_metric = get_metrics(metric_threshold, monitor_metrics, num_classes, top_k=top_k)
-        
-        # Track training loss
-        self.training_loss_sum = 0.0
-        self.training_samples_count = 0
+
+        # self.training_loss_sum = 0.0
+        # self.training_samples_count = 0
 
     @abstractmethod
     def shared_step(self, batch):
@@ -86,7 +82,6 @@ class MultiLabelModel(L.LightningModule):
         """Initialize an optimizer for the free parameters of the network."""
         parameters = [p for p in self.parameters() if p.requires_grad]
         optimizer_name = self.optimizer
-
         if optimizer_name == "sgd":
             optimizer = optim.SGD(
                 parameters, self.learning_rate, momentum=self.momentum, weight_decay=self.weight_decay
@@ -95,16 +90,15 @@ class MultiLabelModel(L.LightningModule):
             optimizer = optim.Adam(parameters, weight_decay=self.weight_decay, lr=self.learning_rate)
         elif optimizer_name == "adamw":
             optimizer = optim.AdamW(parameters, weight_decay=self.weight_decay, lr=self.learning_rate)
-        elif optimizer_name == "adamw_hf_with_bias":
-            optimizer = HFAdamW(parameters, weight_decay=self.weight_decay, lr=self.learning_rate, 
-                               correct_bias=True)
-        elif optimizer_name == "adamw_hf_without_bias":
-            optimizer = HFAdamW(parameters, weight_decay=self.weight_decay, lr=self.learning_rate, 
-                               correct_bias=False)
         elif optimizer_name == "adamax":
             optimizer = optim.Adamax(parameters, weight_decay=self.weight_decay, lr=self.learning_rate)
+        elif optimizer_name == "adamw_hf_with_bias":
+            optimizer = HFAdamW(parameters, weight_decay=self.weight_decay,lr=self.learning_rate,correct_bias=True)
+        elif optimizer_name == "adamw_hf_without_bias":
+            optimizer = HFAdamW(parameters, weight_decay=self.weight_decay,lr=self.learning_rate,correct_bias=False)
+
         else:
-            raise RuntimeError(f"Unsupported optimizer: {self.optimizer}")
+            raise RuntimeError("Unsupported optimizer: {self.optimizer}")
 
         if self.lr_scheduler:
             if self.lr_scheduler == "ReduceLROnPlateau":
@@ -115,33 +109,16 @@ class MultiLabelModel(L.LightningModule):
                     "monitor": self.val_metric,
                 }
             else:
-                raise RuntimeError(f"Unsupported learning rate scheduler: {self.lr_scheduler}")
+                raise RuntimeError("Unsupported learning rate scheduler: {self.lr_scheduler}")
         return {"optimizer": optimizer, "lr_scheduler": lr_scheduler_config} if self.lr_scheduler else optimizer
 
     def training_step(self, batch, batch_idx):
         loss, _ = self.shared_step(batch)
-        # Track loss for epoch-level aggregation
-        batch_size = batch['label'].size(0)
-        self.training_loss_sum += loss.item() * batch_size
-        self.training_samples_count += batch_size
-        # Use correct name (train_loss_step) and specify logging behavior
-        self.log("train_loss_step", loss, on_step=True, on_epoch=False, prog_bar=True)
+        train_loss_dict = {
+            "train_loss_epoch":loss,
+        }
+        self.log_dict(train_loss_dict, on_step=True, on_epoch=True,logger=True, prog_bar=True)
         return loss
-
-    def on_train_epoch_start(self):
-        # Reset counters for next epoch
-        self.training_loss_sum = 0.0
-        self.training_samples_count = 0
-    
-    def on_train_epoch_end(self):
-        # Calculate average training loss for the epoch
-        avg_loss = self.training_loss_sum / self.training_samples_count if self.training_samples_count > 0 else 0.0
-        # Use correct name (train_loss_epoch) and specify logging behavior
-        self.log("train_loss_epoch", avg_loss, on_step=False, on_epoch=True, prog_bar=True)
-        if self.log_path:
-            # Match key name with what plot_metrics.py expects
-            metrics = {"train_loss_epoch": avg_loss}
-            dump_log(metrics=metrics, split='train', log_path=self.log_path)
 
     def validation_step(self, batch, batch_idx):
         self._shared_eval_step(batch, batch_idx)
@@ -171,8 +148,10 @@ class MultiLabelModel(L.LightningModule):
         Returns:
             metric_dict (dict): Scores for all metrics in the dictionary format.
         """
+        #Whats the point of using log_dict if you have your logger disabled ?
         metric_dict = self.eval_metric.compute()
-        self.log_dict(metric_dict)
+        # metric_dict["step"] = self.current_epoch + 1
+        self.log_dict(metric_dict,on_step=False,on_epoch=True,logger=True,prog_bar=True)
         for k, v in metric_dict.items():
             metric_dict[k] = v.item()
         if self.log_path:

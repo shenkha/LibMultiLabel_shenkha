@@ -5,9 +5,31 @@ import lightning as L
 import torch
 from lightning.pytorch import seed_everything
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from lightning.pytorch import Trainer
+from lightning.pytorch.loggers import TensorBoardLogger
+
+from lightning.pytorch.callbacks import Callback 
+
+
 
 from ..nn import networks
 from ..nn.model import Model
+
+class OverrideEpochStepCallback(Callback):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def on_train_epoch_end(self, trainer: L.Trainer, L_module: L.LightningModule):
+        self._log_step_as_current_epoch(trainer, L_module)
+
+    def on_test_epoch_end(self, trainer: L.Trainer, L_module: L.LightningModule):
+        self._log_step_as_current_epoch(trainer, L_module)
+
+    def on_validation_epoch_end(self, trainer: L.Trainer, L_module: L.LightningModule):
+        self._log_step_as_current_epoch(trainer, L_module)
+
+    def _log_step_as_current_epoch(self, trainer: L.Trainer, L_module: L.LightningModule):
+        L_module.log("step", trainer.current_epoch)
 
 
 def init_device(use_cpu=False):
@@ -174,10 +196,15 @@ def init_trainer(
                 mode="min" if val_metric == "Loss" else "max",
             )
         ]
+
+    callbacks.append(OverrideEpochStepCallback())
+    logger = TensorBoardLogger("tb_logs_BertAdamW", name="my_model_100epoch")
+    
     trainer = L.Trainer(
-        logger=False,
+        logger=logger,
         num_sanity_val_steps=0,
         accelerator="cpu" if use_cpu else "gpu",
+        # devices=1 if use_cpu else "auto",
         devices="auto" if use_cpu else 1,
         enable_progress_bar=False if silent else True,
         max_epochs=epochs,
@@ -189,6 +216,7 @@ def init_trainer(
         gradient_clip_val=0.5,
         gradient_clip_algorithm="value",
     )
+    
     return trainer
 
 
