@@ -6,12 +6,13 @@ import numpy as np
 import scipy.sparse as sparse
 import sklearn.cluster
 import sklearn.preprocessing
+import sklearn.utils
 from tqdm import tqdm
 import psutil
-
+from joblib import Parallel, delayed
 from . import linear
 
-__all__ = ["train_tree", "TreeModel"]
+__all__ = ["train_tree", "TreeModel", "train_ensemble_tree", "EnsembleTreeModel"]
 
 
 class Node:
@@ -299,3 +300,83 @@ def _flatten_model(root: Node) -> tuple[linear.FlatModel, np.ndarray]:
     weight_map = np.cumsum([0] + list(map(lambda w: w.shape[1], weights)))
 
     return model, weight_map
+
+
+class EnsembleTreeModel:
+    """An ensemble of tree models.
+    The ensemble aggregates predictions from multiple trees to improve accuracy and robustness.
+    """
+
+    def __init__(self, tree_models: list[TreeModel]):
+        """
+        Args:
+            tree_models (list[TreeModel]): A list of trained tree models.
+        """
+        self.name = "ensemble-tree"
+        self.tree_models = tree_models
+        self.multiclass = False
+
+    def predict_values(self, x: sparse.csr_matrix, beam_width: int = 10) -> np.ndarray:
+        """Calculates the averaged probability estimates from all trees in the ensemble.
+
+        Args:
+            x (sparse.csr_matrix): A matrix with dimension number of instances * number of features.
+            beam_width (int, optional): Number of candidates considered during beam search for each tree. Defaults to 10.
+
+        Returns:
+            np.ndarray: A matrix with dimension number of instances * number of classes, containing averaged scores.
+        """
+        
+        all_predictions = [model.predict_values(x, beam_width) for model in self.tree_models]
+        return np.mean(all_predictions, axis=0) #Use sparse instead of np.mean to avoid memory issues
+
+# def train_single_tree(seed,y,x,options,K,dmax,verbose):
+#     np.random.seed(seed)
+#     tree_model = train_tree(y,x,options,K,dmax,verbose=False)
+#     return tree_model
+
+def train_ensemble_tree(
+    y: sparse.csr_matrix,
+    x: sparse.csr_matrix,
+    options: str = "",
+    K: int = 100,
+    dmax: int = 10,
+    n_trees: int = 3,
+    #instance_subsample: float = 1.0, #Subsampling is not used in this implementation as it is not effective
+    #n_jobs: int = 1,
+    verbose: bool = True,
+) -> EnsembleTreeModel:
+    """Trains an ensemble of tree models (Parabel-style) sequentially with instance subsampling.
+    This method trains multiple independent trees, each on a different random subset of the data,
+    and combines them into an ensemble model.
+
+    Args:
+        y (sparse.csr_matrix): A 0/1 matrix with dimensions number of instances * number of classes.
+        x (sparse.csr_matrix): A matrix with dimensions number of instances * number of features.
+        options (str, optional): The option string passed to liblinear. Defaults to ''.
+        K (int, optional): Maximum degree of nodes in the tree. Defaults to 100.
+        dmax (int, optional): Maximum depth of the tree. Defaults to 10.
+        n_trees (int, optional): Number of trees in the ensemble. Defaults to 3.
+        instance_subsample (float, optional): Fraction of instances to subsample for training each tree.
+                                            Setting to < 1.0 enables bagging. Defaults to 1.0 (no subsampling).
+        verbose (bool, optional): Output extra progress information. Defaults to True.
+
+    Returns:
+        EnsembleTreeModel: An ensemble model which can be used for prediction.
+    """
+    tree_models = []
+    for i in range(n_trees):
+        
+
+        np.random.seed(i)
+
+        
+        tree_model = train_tree(y, x, options, K, dmax, verbose=False)
+        tree_models.append(tree_model)
+
+
+
+    if verbose:
+        print("Ensemble training completed.")
+
+    return EnsembleTreeModel(tree_models)
