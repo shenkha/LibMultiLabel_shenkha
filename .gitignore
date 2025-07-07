@@ -103,7 +103,7 @@ celerybeat-schedule
 .env
 .venv
 env/
-venv*/
+venv/
 ENV/
 env.bak/
 venv.bak/
@@ -161,3 +161,11 @@ docs/cli/*.include
 !requirements.txt
 !requirements_nn.txt
 !requirements_parameter_search.txt
+
+# Project-specific
+*.ipynb
+*_log.txt
+*.joblib
+__pycache__/
+runs/
+data/

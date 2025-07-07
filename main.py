@@ -68,7 +68,7 @@ def add_all_arguments(parser):
     )
 
     # train
-    parser.add_argument("--seed", type=int, help="Random seed (default: %(default)s)")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed (default: %(default)s)")
     parser.add_argument(
         "--epochs", type=int, default=10000, help="The number of epochs to train (default: %(default)s)"
     )

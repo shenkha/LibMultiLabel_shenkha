@@ -48,24 +48,13 @@ class TreeModel:
         root: Node,
         flat_model: linear.FlatModel,
         node_ptr: np.ndarray,
-        options: str,
     ):
         self.name = "tree"
         self.root = root
         self.flat_model = flat_model
         self.node_ptr = node_ptr
-        self.options = options
         self.multiclass = False
         self._model_separated = False # Indicates whether the model has been separated for pruning tree.
-
-    def _is_lr(self) -> bool:
-        return any(s in self.options for s in ["-s 0", "-s 6", "-s 7"])
-
-    def _get_scores(self, pred, parent_score=0.0):
-        if self._is_lr():
-            return parent_score - np.log(1 + np.exp(-pred))
-        else:
-            return parent_score - np.square(np.maximum(0, 1 - pred))
 
     def predict_values(
         self,
@@ -138,7 +127,7 @@ class TreeModel:
 
         # Calculate root decision values and scores
         root_preds = linear.predict_values(self.root_model, x)
-        children_scores = self._get_scores(root_preds)
+        children_scores = 0.0 - np.square(np.maximum(0, 1 - root_preds))
 
         slice = np.s_[:, self.node_ptr[self.root.index] : self.node_ptr[self.root.index + 1]]
         all_preds[slice] = root_preds
@@ -190,7 +179,7 @@ class TreeModel:
                     continue
                 slice = np.s_[self.node_ptr[node.index] : self.node_ptr[node.index + 1]]
                 pred = instance_preds[slice]
-                children_score = self._get_scores(pred, score)
+                children_score = score - np.square(np.maximum(0, 1 - pred))
                 next_level.extend(zip(node.children, children_score.tolist()))
 
             cur_level = sorted(next_level, key=lambda pair: -pair[1])[:beam_width]
@@ -201,7 +190,7 @@ class TreeModel:
         for node, score in cur_level:
             slice = np.s_[self.node_ptr[node.index] : self.node_ptr[node.index + 1]]
             pred = instance_preds[slice]
-            scores[node.label_map] = np.exp(self._get_scores(pred, score))
+            scores[node.label_map] = np.exp(score - np.square(np.maximum(0, 1 - pred)))
         return scores
 
 
@@ -269,7 +258,7 @@ def train_tree(
     pbar.close()
 
     flat_model, node_ptr = _flatten_model(root)
-    return TreeModel(root, flat_model, node_ptr, options)
+    return TreeModel(root, flat_model, node_ptr)
 
 
 def _build_tree(label_representation: sparse.csr_matrix, label_map: np.ndarray, d: int, K: int, dmax: int) -> Node:
@@ -289,13 +278,21 @@ def _build_tree(label_representation: sparse.csr_matrix, label_map: np.ndarray, 
         return Node(label_map=label_map, children=[])
 
     metalabels = (
-        sklearn.cluster.KMeans(
-            K,
+        # LloydKmeans(
+        #     n_clusters=K,
+        #     random_state=np.random.randint(2**31 - 1),
+        #     n_threads=psutil.cpu_count(logical=False), 
+        #     max_iter=300,
+        #     tol=0.0001,
+        # )
+        # .fit(label_representation)
+        # .labels_
+        ElkanKmeans(
+            n_clusters=K,
             random_state=np.random.randint(2**31 - 1),
-            n_init=1,
+            n_threads=psutil.cpu_count(logical=False), 
             max_iter=300,
             tol=0.0001,
-            algorithm="elkan",
         )
         .fit(label_representation)
         .labels_
@@ -419,8 +416,18 @@ class EnsembleTreeModel:
         Returns:
             np.ndarray: A matrix with dimension number of instances * number of classes, containing averaged scores.
         """
-        all_predictions = [model.predict_values(x, beam_width) for model in self.tree_models]
-        return np.mean(all_predictions, axis=0)
+        
+        # all_predictions = [model.predict_values(x, beam_width) for model in self.tree_models]
+        # return np.mean(all_predictions, axis=0)
+
+        #Apply sparse matrix in returning mean probs for better memory savings 
+        all_sparse_predictions = [sparse.csr_matrix(model.predict_values(x, beam_width)) for model in self.tree_models]
+        avg_sparse_pred = all_sparse_predictions[0].copy()
+        for pred in all_sparse_predictions[1:]:
+            avg_sparse_pred += pred
+        
+        avg_sparse_pred /= len(self.tree_models)
+        return avg_sparse_pred.toarray()
 
 
 def train_ensemble_tree(
@@ -430,10 +437,12 @@ def train_ensemble_tree(
     K: int = 100,
     dmax: int = 10,
     n_trees: int = 3,
-    seed: int = 42,
     verbose: bool = True,
 ) -> EnsembleTreeModel:
-    """Trains an ensemble of tree models (Parabel/Bonsai-style).
+    """Trains an ensemble of tree models (Parabel-style) sequentially with instance subsampling.
+    This method trains multiple independent trees, each on a different random subset of the data,
+    and combines them into an ensemble model.
+
     Args:
         y (sparse.csr_matrix): A 0/1 matrix with dimensions number of instances * number of classes.
         x (sparse.csr_matrix): A matrix with dimensions number of instances * number of features.
@@ -441,7 +450,8 @@ def train_ensemble_tree(
         K (int, optional): Maximum degree of nodes in the tree. Defaults to 100.
         dmax (int, optional): Maximum depth of the tree. Defaults to 10.
         n_trees (int, optional): Number of trees in the ensemble. Defaults to 3.
-        seed (int, optional): The base random seed for the ensemble. Defaults to 42.
+        instance_subsample (float, optional): Fraction of instances to subsample for training each tree.
+                                            Setting to < 1.0 enables bagging. Defaults to 1.0 (no subsampling).
         verbose (bool, optional): Output extra progress information. Defaults to True.
 
     Returns:
@@ -449,7 +459,10 @@ def train_ensemble_tree(
     """
     tree_models = []
     for i in range(n_trees):
-        np.random.seed(seed + i)
+        
+
+        np.random.seed(i)
+
         
         tree_model = train_tree(y, x, options, K, dmax, verbose=False)
         tree_models.append(tree_model)
