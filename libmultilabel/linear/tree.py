@@ -59,7 +59,14 @@ class TreeModel:
         self._model_separated = False # Indicates whether the model has been separated for pruning tree.
 
     def _is_lr(self) -> bool:
-        return any(s in self.options for s in ["-s 0", "-s 6", "-s 7"])
+        options = self.options or ""
+        options_split = options.split()
+        if "-s" in options_split:
+            i = options_split.index("-s")
+            if i + 1 < len(options_split):
+                solver_type = options_split[i + 1]
+                return solver_type in ["0", "6", "7"]
+        return False
 
     def _get_scores(self, pred, parent_score=0.0):
         if self._is_lr():
