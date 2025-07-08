@@ -10,7 +10,7 @@ import sklearn.utils
 from tqdm import tqdm
 import psutil
 from . import linear
-from sparsekmeans import LloydKmeans, ElkanKmeans
+#from sparsekmeans import LloydKmeans, ElkanKmeans
 
 __all__ = ["train_tree", "TreeModel", "train_ensemble_tree", "EnsembleTreeModel"]
 
