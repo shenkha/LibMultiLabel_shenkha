@@ -10,6 +10,7 @@ import sklearn.utils
 from tqdm import tqdm
 import psutil
 from . import linear
+from scipy.special import log_expit
 #from sparsekmeans import LloydKmeans, ElkanKmeans
 
 __all__ = ["train_tree", "TreeModel", "train_ensemble_tree", "EnsembleTreeModel"]
@@ -70,7 +71,8 @@ class TreeModel:
 
     def _get_scores(self, pred, parent_score=0.0):
         if self._is_lr():
-            return parent_score - np.log(1 + np.exp(-pred))
+            #return parent_score - np.log(1 + np.exp(-pred))
+            return parent_score + log_expit(pred)
         else:
             return parent_score - np.square(np.maximum(0, 1 - pred))
 
